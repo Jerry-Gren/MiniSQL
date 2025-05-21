@@ -56,4 +56,6 @@ TEST(DiskManagerTest, FreePageAllocationTest) {
   EXPECT_EQ(extent_nums * DiskManager::BITMAP_SIZE - 5, meta_page->GetAllocatedPages());
   EXPECT_EQ(DiskManager::BITMAP_SIZE - 2, meta_page->GetExtentUsedPage(0));
   EXPECT_EQ(DiskManager::BITMAP_SIZE - 3, meta_page->GetExtentUsedPage(1));
+
+  delete disk_mgr;  // Added to avoid valgrind `definitely / indirectly lost`
 }
