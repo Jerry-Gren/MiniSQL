@@ -1,0 +1,55 @@
+name: MiniSQL CI - Selective Tests on PR to main/master
+
+on:
+  pull_request:
+    branches:
+      - 'main'
+      - 'master'
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug 
+
+      - name: Build project (including the 'minisql_test' executable)
+        run: cmake --build build
+
+      - name: Run selective GTest tests using --gtest_filter
+        shell: bash
+        working-directory: build/test
+        run: |
+          SOURCE_BRANCH_NAME="${{ github.head_ref }}"
+          echo "Pull Request source branch: $SOURCE_BRANCH_NAME"
+          echo "Pull Request target branch: ${{ github.base_ref }}"
+          
+          GTEST_FILTER_STRING="" 
+          
+          if [[ "$SOURCE_BRANCH_NAME" == "feature/disk-and-buffer-pool-manager" ]]; then
+            GTEST_FILTER_STRING="DiskManagerTest.*:LRUReplacerTest.*:BufferPoolManagerTest.*"
+          elif [[ "$SOURCE_BRANCH_NAME" == "feature/record-manager" ]]; then
+            GTEST_FILTER_STRING="TupleTest.*:TableHeapTest.*"
+          elif [[ "$SOURCE_BRANCH_NAME" == "feature/index-manager" ]]; then
+            GTEST_FILTER_STRING="BPlusTreeIndexTest.*:BPlusTreeTest.*:IndexIteratorTest.*"
+          elif [[ "$SOURCE_BRANCH_NAME" == "feature/catalog-manager" ]]; then
+            GTEST_FILTER_STRING="CatalogTest.*"
+          elif [[ "$SOURCE_BRANCH_NAME" == "feature/planner-and-executor" ]]; then
+            GTEST_FILTER_STRING="ExecutorTest.*:RecoveryManagerTest.*"
+          elif [[ "$SOURCE_BRANCH_NAME" == "feature/lock-manager" ]]; then
+            GTEST_FILTER_STRING="LockManagerTest.*"
+          fi
+          
+          if [[ -n "$GTEST_FILTER_STRING" ]]; then
+            echo "Selected GTest filter for source branch '$SOURCE_BRANCH_NAME': $GTEST_FILTER_STRING"
+            echo "Running tests with filter..."
+            ./minisql_test --gtest_filter="$GTEST_FILTER_STRING" --gtest_color=yes --gtest_output=xml:gtest_report.xml
+          else
+            echo "Error: Source branch '$SOURCE_BRANCH_NAME' does not match any approved feature branch pattern for selective testing."
+            echo "This PR will be marked as failed. Please use a recognized 'feature/*' branch or update CI rules."
+            exit 1 
+          fi
