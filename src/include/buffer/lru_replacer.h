@@ -3,8 +3,9 @@
 
 #include <list>
 #include <mutex>
-#include <unordered_set>
-#include <vector>
+// #include <unordered_set>
+#include <unordered_map>
+// #include <vector>
 
 #include "buffer/replacer.h"
 #include "common/config.h"
@@ -15,7 +16,7 @@ using namespace std;
  * LRUReplacer implements the Least Recently Used replacement policy.
  */
 class LRUReplacer : public Replacer {
- public:
+public:
   /**
    * Create a new LRUReplacer.
    * @param num_pages the maximum number of pages the LRUReplacer will be required to store
@@ -37,6 +38,18 @@ class LRUReplacer : public Replacer {
 
 private:
   // add your own private member variables here
+  // Mutex to protect shared data structures: lru_list_ and lru_map_.
+  std::mutex latch_;
+
+  // Doubly-linked list to store frame_ids.
+  // The front of the list is the Most Recently Used (MRU) frame.
+  // The back of the list is the Least Recently Used (LRU) frame.
+  std::list<frame_id_t> lru_list_;
+
+  // Hash map to store (frame_id_t -> list_iterator) pairs.
+  // This allows O(1) average time complexity for finding, removing,
+  // or moving elements within lru_list_.
+  std::unordered_map<frame_id_t, std::list<frame_id_t>::iterator> lru_map_;
 };
 
 #endif  // MINISQL_LRU_REPLACER_H

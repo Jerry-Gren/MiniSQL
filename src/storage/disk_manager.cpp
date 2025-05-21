@@ -51,29 +51,163 @@ void DiskManager::WritePage(page_id_t logical_page_id, const char *page_data) {
  * TODO: Student Implement
  */
 page_id_t DiskManager::AllocatePage() {
-  ASSERT(false, "Not implemented yet.");
-  return INVALID_PAGE_ID;
+  std::scoped_lock<std::recursive_mutex> lock(db_io_latch_);
+  auto meta_page = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
+
+  if (meta_page->GetAllocatedPages() >= MAX_VALID_PAGE_ID) {
+    LOG(WARNING) << "Cannot allocate page. Database is full. Allocated pages: "
+                 << meta_page->GetAllocatedPages() << ", Max valid pages: " << MAX_VALID_PAGE_ID;
+    return INVALID_PAGE_ID;
+  }
+
+  // Try to find a free page in existing extents
+  for (uint32_t extent_id = 0; extent_id < meta_page->GetExtentNums(); ++extent_id) {
+    if (meta_page->GetExtentUsedPage(extent_id) < BITMAP_SIZE) {
+      page_id_t bitmap_physical_page_id = 1 + extent_id * (1 + BITMAP_SIZE);
+      char page_buffer[PAGE_SIZE];
+      ReadPhysicalPage(bitmap_physical_page_id, page_buffer);
+      auto bitmap = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(page_buffer);
+
+      uint32_t page_offset_in_bitmap;
+      if (bitmap->AllocatePage(page_offset_in_bitmap)) {
+        WritePhysicalPage(bitmap_physical_page_id, page_buffer);
+        meta_page->num_allocated_pages_++;
+        meta_page->extent_used_page_[extent_id]++;
+        // WritePhysicalPage(META_PAGE_ID, meta_data_); // MetaData is flushed on Close()
+        return static_cast<page_id_t>(extent_id * BITMAP_SIZE + page_offset_in_bitmap);
+      }
+    }
+  }
+
+  // If no space in existing extents, try to create a new extent
+  uint32_t current_num_extents = meta_page->GetExtentNums();
+  // Calculate max extents DiskFileMetaPage can hold
+  // offsetof(DiskFileMetaPage, extent_used_page_) is typically 8 bytes for the two uint32_t members before it.
+  uint32_t max_extents_possible = (PAGE_SIZE - offsetof(DiskFileMetaPage, extent_used_page_)) / sizeof(uint32_t);
+
+
+  if (current_num_extents < max_extents_possible) {
+    uint32_t new_extent_id = current_num_extents;
+    page_id_t bitmap_physical_page_id = 1 + new_extent_id * (1 + BITMAP_SIZE);
+
+    char page_buffer[PAGE_SIZE];
+    std::memset(page_buffer, 0, PAGE_SIZE); // Initialize new bitmap page to all zeros (all free)
+    auto bitmap = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(page_buffer);
+
+    // Initialize BitmapPage metadata explicitly if its constructor doesn't,
+    // or if it relies on being zeroed. memset above handles the bits.
+    // The BitmapPage implementation expects its members (page_allocated_, next_free_page_)
+    // to be set correctly. A zeroed buffer means page_allocated_ and next_free_page_ are 0.
+    // This is correct for a new bitmap.
+
+    uint32_t page_offset_in_bitmap;
+    if (bitmap->AllocatePage(page_offset_in_bitmap)) { // Should allocate the first page (offset 0)
+      WritePhysicalPage(bitmap_physical_page_id, page_buffer);
+
+      meta_page->num_extents_++;
+      meta_page->num_allocated_pages_++;
+      meta_page->extent_used_page_[new_extent_id] = 1;
+      // WritePhysicalPage(META_PAGE_ID, meta_data_); // MetaData is flushed on Close()
+      return static_cast<page_id_t>(new_extent_id * BITMAP_SIZE + page_offset_in_bitmap);
+    } else {
+      LOG(ERROR) << "Failed to allocate page in a brand new bitmap page. This should not happen.";
+      return INVALID_PAGE_ID;
+    }
+  } else {
+    LOG(WARNING) << "Cannot allocate page. DiskFileMetaPage cannot hold more extents. Current extents: "
+                 << current_num_extents << ", Max extents: " << max_extents_possible;
+  }
+
+  return INVALID_PAGE_ID; // No page could be allocated
 }
 
 /**
  * TODO: Student Implement
  */
 void DiskManager::DeAllocatePage(page_id_t logical_page_id) {
-  ASSERT(false, "Not implemented yet.");
+  std::scoped_lock<std::recursive_mutex> lock(db_io_latch_);
+  auto meta_page = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
+
+  if (logical_page_id < 0) { // Or >= MAX_VALID_PAGE_ID potentially, but IsPageFree should handle state
+    LOG(ERROR) << "Attempting to deallocate invalid logical_page_id: " << logical_page_id;
+    return;
+  }
+
+  uint32_t extent_id = logical_page_id / BITMAP_SIZE;
+  uint32_t page_offset_in_bitmap = logical_page_id % BITMAP_SIZE;
+
+  if (extent_id >= meta_page->GetExtentNums()) {
+    LOG(ERROR) << "Attempting to deallocate page " << logical_page_id
+               << " from non-existent extent_id " << extent_id;
+    return;
+  }
+
+  page_id_t bitmap_physical_page_id = 1 + extent_id * (1 + BITMAP_SIZE);
+  char page_buffer[PAGE_SIZE];
+  ReadPhysicalPage(bitmap_physical_page_id, page_buffer);
+  auto bitmap = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(page_buffer);
+
+  if (bitmap->DeAllocatePage(page_offset_in_bitmap)) {
+    WritePhysicalPage(bitmap_physical_page_id, page_buffer);
+    meta_page->num_allocated_pages_--;
+    meta_page->extent_used_page_[extent_id]--;
+    // WritePhysicalPage(META_PAGE_ID, meta_data_); // MetaData is flushed on Close()
+  } else {
+    LOG(ERROR) << "Failed to deallocate logical page " << logical_page_id
+               << " (offset " << page_offset_in_bitmap << " in extent " << extent_id
+               << "). Page might have already been free or other error.";
+  }
 }
 
 /**
  * TODO: Student Implement
  */
 bool DiskManager::IsPageFree(page_id_t logical_page_id) {
-  return false;
+  std::scoped_lock<std::recursive_mutex> lock(db_io_latch_); // Read operation, but involves disk read
+  auto meta_page = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
+
+  if (logical_page_id < 0) return false; // Invalid pages are not "free" in a usable sense
+
+  uint32_t extent_id = logical_page_id / BITMAP_SIZE;
+  uint32_t page_offset_in_bitmap = logical_page_id % BITMAP_SIZE;
+
+  if (extent_id >= meta_page->GetExtentNums()) {
+    // This logical page belongs to an extent that hasn't been created yet.
+    // Therefore, it's not allocated, so it's considered free.
+    return true;
+  }
+
+  // If the logical_page_id is valid but beyond what could have been allocated based on total count,
+  // it might seem free. However, we must check the specific bitmap.
+  // Example: MAX_VALID_PAGE_ID = 1000, num_allocated_pages = 10.
+  // IsPageFree(500) should consult the bitmap of the relevant extent.
+  // The check `extent_id >= meta_page->GetExtentNums()` covers cases where the extent itself doesn't exist.
+
+  page_id_t bitmap_physical_page_id = 1 + extent_id * (1 + BITMAP_SIZE);
+  char page_buffer[PAGE_SIZE];
+  ReadPhysicalPage(bitmap_physical_page_id, page_buffer);
+  auto bitmap = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(page_buffer);
+
+  return bitmap->IsPageFree(page_offset_in_bitmap);
 }
 
 /**
  * TODO: Student Implement
  */
 page_id_t DiskManager::MapPageId(page_id_t logical_page_id) {
-  return 0;
+  // Page 0: Disk Meta Page
+  // Extent k (0-indexed):
+  //   Bitmap Page: Physical Page 1 + k * (1 + BITMAP_SIZE)
+  //   Data Pages Start: Physical Page 1 + k * (1 + BITMAP_SIZE) + 1
+
+  uint32_t extent_id = logical_page_id / BITMAP_SIZE;
+  uint32_t page_offset_in_logical_extent = logical_page_id % BITMAP_SIZE;
+
+  page_id_t physical_page_id = 1 + extent_id * (1 + BITMAP_SIZE) + 1 + page_offset_in_logical_extent;
+  // This simplifies to:
+  // physical_page_id = extent_id * (BITMAP_SIZE + 1) + 2 + page_offset_in_logical_extent;
+
+  return physical_page_id;
 }
 
 int DiskManager::GetFileSize(const std::string &file_name) {
