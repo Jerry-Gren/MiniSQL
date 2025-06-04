@@ -38,8 +38,8 @@ jobs:
             GTEST_FILTER_STRING="BPlusTreeIndexTest.*:BPlusTreeTest.*:IndexIteratorTest.*"
           elif [[ "$SOURCE_BRANCH_NAME" == "feature/catalog-manager" ]]; then
             GTEST_FILTER_STRING="CatalogTest.*"
-          elif [[ "$SOURCE_BRANCH_NAME" == "feature/planner-and-executor" ]]; then
-            GTEST_FILTER_STRING="ExecutorTest.*:RecoveryManagerTest.*"
+          elif [[ "$SOURCE_BRANCH_NAME" == "feature/recovery-manager" ]]; then
+            GTEST_FILTER_STRING="RecoveryManagerTest.*"
           elif [[ "$SOURCE_BRANCH_NAME" == "feature/lock-manager" ]]; then
             GTEST_FILTER_STRING="LockManagerTest.*"
           fi
