@@ -108,12 +108,37 @@ class TableHeap {
    * create table heap and initialize first page
    */
   explicit TableHeap(BufferPoolManager *buffer_pool_manager, Schema *schema, Txn *txn, LogManager *log_manager,
-                     LockManager *lock_manager)
-      : buffer_pool_manager_(buffer_pool_manager),
-        schema_(schema),
-        log_manager_(log_manager),
-        lock_manager_(lock_manager) {
-    ASSERT(false, "Not implemented yet.");
+                      LockManager *lock_manager)
+       : buffer_pool_manager_(buffer_pool_manager),
+         schema_(schema),
+         log_manager_(log_manager),
+         lock_manager_(lock_manager),
+         first_page_id_(INVALID_PAGE_ID) {
+
+    // Allocate the first page for the table heap.
+    page_id_t first_page_id_on_disk;
+    // NewPage from BPM allocates a page on disk and provides a frame in memory.
+    Page* raw_first_page = buffer_pool_manager_->NewPage(first_page_id_on_disk);
+
+    if (raw_first_page == nullptr || first_page_id_on_disk == INVALID_PAGE_ID) {
+      // Failed to allocate a page from BPM (e.g., pool is full and no victim, or disk is full).
+      // The TableHeap will be created in an empty state (first_page_id_ remains INVALID_PAGE_ID).
+      LOG(ERROR) << "TableHeap Constructor: Failed to create the first page. Heap remains empty.";
+      // this->first_page_id_ is already INVALID_PAGE_ID due to the initializer list.
+      // For more robust error handling, consider throwing an exception:
+      // throw std::runtime_error("Failed to allocate first page for TableHeap.");
+      return; // Exit constructor; first_page_id_ remains INVALID_PAGE_ID
+    }
+
+    this->first_page_id_ = first_page_id_on_disk; // Set the first page ID for this heap.
+    TablePage* table_first_page = reinterpret_cast<TablePage*>(raw_first_page);
+
+    // Initialize the header and data of the first TablePage.
+    // PrevPageId is invalid for the first page.
+    table_first_page->Init(this->first_page_id_, INVALID_PAGE_ID, log_manager_, txn);
+
+    // Unpin the page. It is dirty because its header was initialized.
+    buffer_pool_manager_->UnpinPage(this->first_page_id_, true);
   };
 
   explicit TableHeap(BufferPoolManager *buffer_pool_manager, page_id_t first_page_id, Schema *schema,
