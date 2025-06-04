@@ -32,6 +32,10 @@ public:
 
 private:
   // add your own private member variables here
+  TableHeap *table_heap_{nullptr};    // Pointer to the TableHeap instance being iterated.
+  RowId current_rid_{INVALID_ROWID};  // Current RowId this iterator points to. INVALID_ROWID indicates end or invalid state.
+  Row current_row_;                   // Buffer to hold the actual data of the current Row.
+  Txn *txn_{nullptr};                 // Transaction context for operations.
 };
 
 #endif  // MINISQL_TABLE_ITERATOR_H
