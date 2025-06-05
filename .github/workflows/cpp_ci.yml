@@ -35,7 +35,7 @@ jobs:
           elif [[ "$SOURCE_BRANCH_NAME" == "feature/record-manager" ]]; then
             GTEST_FILTER_STRING="TupleTest.*:TableHeapTest.*"
           elif [[ "$SOURCE_BRANCH_NAME" == "feature/index-manager" ]]; then
-            GTEST_FILTER_STRING="BPlusTreeIndexTest.*:BPlusTreeTest.*:IndexIteratorTest.*"
+            GTEST_FILTER_STRING="BPlusTreeTests.*"
           elif [[ "$SOURCE_BRANCH_NAME" == "feature/catalog-manager" ]]; then
             GTEST_FILTER_STRING="CatalogTest.*"
           elif [[ "$SOURCE_BRANCH_NAME" == "feature/recovery-manager" ]]; then
