@@ -68,7 +68,7 @@ class IndexInfo {
     // Step2: mapping index key to key schema
     // Step3: call CreateIndex to create the index
     this->meta_data_ = meta_data;
-    key_schema_ = Schema::ShallowCopySchema(table_info->GetSchema(), meta_data->GetKeyMapping());
+    key_schema_ = table_info->GetSchema()->ShallowCopySchema(table_info->GetSchema(), meta_data->GetKeyMapping());
     index_ = CreateIndex(buffer_pool_manager, "bptree");
   }
 
