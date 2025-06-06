@@ -43,7 +43,15 @@ uint32_t IndexMetadata::SerializeTo(char *buf) const {
  * TODO: Student Implement
  */
 uint32_t IndexMetadata::GetSerializedSize() const {
-  return 0;
+  uint32_t size = 0;
+  size += sizeof(uint32_t);
+  size += sizeof(index_id_t);
+  size += sizeof(uint32_t);
+  size += index_name_.length();
+  size += sizeof(table_id_t);
+  size += sizeof(uint32_t);
+  size += key_map_.size() * sizeof(uint32_t);
+  return size;
 }
 
 uint32_t IndexMetadata::DeserializeFrom(char *buf, IndexMetadata *&index_meta) {
