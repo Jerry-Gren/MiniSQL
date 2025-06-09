@@ -249,15 +249,6 @@ bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
   if (is_dirty) {
     page->is_dirty_ = true;
   }
-  // Alternative: page->is_dirty_ = page->is_dirty_ || is_dirty; (safer if page could already be dirty)
-  // The above line `page->is_dirty_ = true;` if is_dirty is true implies `is_dirty` sets it regardless of prior state.
-  // Let's use the safer ORing:
-  // page->is_dirty_ = page->is_dirty_ || is_dirty;
-  // However, typical use is `UnpinPage(page_id, true)` means "I dirtied it".
-  // `UnpinPage(page_id, false)` means "I read it, didn't dirty it".
-  // So `if (is_dirty) page->is_dirty_ = true;` is fine. If it was already dirty, it remains dirty.
-  // If it was clean and is_dirty is true, it becomes dirty.
-  // If it was clean and is_dirty is false, it remains clean.
 
   if (page->GetPinCount() == 0) {
     // If pin_count reaches 0, the page becomes a candidate for replacement.
