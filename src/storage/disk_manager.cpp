@@ -93,13 +93,7 @@ page_id_t DiskManager::AllocatePage() {
     char page_buffer[PAGE_SIZE];
     std::memset(page_buffer, 0, PAGE_SIZE); // Initialize new bitmap page to all zeros (all free)
     auto bitmap = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(page_buffer);
-
-    // Initialize BitmapPage metadata explicitly if its constructor doesn't,
-    // or if it relies on being zeroed. memset above handles the bits.
-    // The BitmapPage implementation expects its members (page_allocated_, next_free_page_)
-    // to be set correctly. A zeroed buffer means page_allocated_ and next_free_page_ are 0.
-    // This is correct for a new bitmap.
-
+    
     uint32_t page_offset_in_bitmap;
     if (bitmap->AllocatePage(page_offset_in_bitmap)) { // Should allocate the first page (offset 0)
       WritePhysicalPage(bitmap_physical_page_id, page_buffer);
@@ -176,12 +170,6 @@ bool DiskManager::IsPageFree(page_id_t logical_page_id) {
     // Therefore, it's not allocated, so it's considered free.
     return true;
   }
-
-  // If the logical_page_id is valid but beyond what could have been allocated based on total count,
-  // it might seem free. However, we must check the specific bitmap.
-  // Example: MAX_VALID_PAGE_ID = 1000, num_allocated_pages = 10.
-  // IsPageFree(500) should consult the bitmap of the relevant extent.
-  // The check `extent_id >= meta_page->GetExtentNums()` covers cases where the extent itself doesn't exist.
 
   page_id_t bitmap_physical_page_id = 1 + extent_id * (1 + BITMAP_SIZE);
   char page_buffer[PAGE_SIZE];
