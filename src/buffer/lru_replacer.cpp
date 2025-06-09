@@ -38,8 +38,6 @@ void LRUReplacer::Pin(frame_id_t frame_id) {
     lru_list_.erase(map_iterator->second); // map_iterator->second is the std::list<frame_id_t>::iterator.
     lru_map_.erase(map_iterator);          // Erase from map using the map iterator for efficiency.
   }
-  // If frame_id is not in lru_map_, it implies it was already pinned
-  // or has never been unpinned into the replacer; no action is needed.
 }
 
 /**
@@ -50,9 +48,6 @@ void LRUReplacer::Unpin(frame_id_t frame_id) {
 
   // Check if the frame is already in the replacer (i.e., already unpinned).
   if (lru_map_.count(frame_id)) {
-    // According to the test's expected behavior for the initial victims (1,2,3),
-    // unpinning an already unpinned frame should NOT change its LRU status.
-    // Therefore, if it's already in the map, we do nothing.
     return;
   }
 
