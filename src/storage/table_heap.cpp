@@ -150,9 +150,6 @@ bool TableHeap::UpdateTuple(Row &new_row, const RowId &rid, Txn *txn) {
     return true;
   }
 
-  // If updated_in_place is false, TablePage::UpdateTuple failed.
-  // This could be because the tuple at 'rid' doesn't exist (or is deleted), or the new_row is too large for *this* page.
-  // We need to unpin the page from the failed attempt. Assume TablePage::UpdateTuple doesn't dirty the page on failure to fit.
   buffer_pool_manager_->UnpinPage(rid.GetPageId(), false);
 
   // To robustly handle DEL+INS, first verify the old tuple actually exists if TablePage::UpdateTuple doesn't guarantee this check.
@@ -163,8 +160,6 @@ bool TableHeap::UpdateTuple(Row &new_row, const RowId &rid, Txn *txn) {
       // LOG(WARNING) << "UpdateTuple: Original tuple at RID " << rid.Get() << " not found or already deleted before DEL+INS.";
       return false; // Original tuple doesn't exist or is marked deleted.
   }
-  // If GetTuple succeeded, the tuple at 'rid' exists and is not (permanently) deleted.
-  // The failure of TablePage::UpdateTuple is now more likely due to size constraints on that specific page.
 
   // Check if new_row is too large for *any* page before attempting DEL+INS.
   if (new_row.GetSerializedSize(schema_) > TablePage::SIZE_MAX_ROW) {
@@ -182,9 +177,6 @@ bool TableHeap::UpdateTuple(Row &new_row, const RowId &rid, Txn *txn) {
   // Try to insert the new version of the tuple. InsertTuple will find/create a page
   // and crucially set new_row.rid_ to its new RowId.
   if (InsertTuple(new_row, txn)) {
-    // Successfully "moved" the tuple. The old 'rid' is now logically deleted.
-    // The physical removal of the old tuple marked at 'rid' (ApplyDelete)
-    // will be handled later (e.g., on transaction commit or by a background vacuum process).
     return true;
   } else {
     // InsertTuple failed (e.g., BPM full, disk full). This is a critical state.
@@ -205,9 +197,6 @@ void TableHeap::ApplyDelete(const RowId &rid, Txn *txn) {
   }
   TablePage *page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(rid.GetPageId()));
   if (page == nullptr) {
-    // If page is not in buffer, we can't modify its slots.
-    // A more advanced system might need to handle this (e.g. if tuple was only marked on disk).
-    // For now, if page not found in buffer, we can't apply the delete here.
     LOG(WARNING) << "ApplyDelete: Page " << rid.GetPageId() << " not found. Cannot apply delete for tuple in slot " << rid.GetSlotNum();
     return;
   }
@@ -249,9 +238,6 @@ bool TableHeap::GetTuple(Row *row, Txn *txn) {
     return false;
   }
 
-  // TablePage::GetTuple will fill the 'row' object with data if the tuple is found
-  // at rid.GetSlotNum() and is not marked as deleted.
-  // It should handle page latching.
   bool found = page->GetTuple(row, schema_, txn, lock_manager_);
 
   // Unpin the page. It was a read operation, so the page is not marked dirty by this GetTuple call.
