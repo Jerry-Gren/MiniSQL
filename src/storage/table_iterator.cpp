@@ -8,13 +8,8 @@
  */
 TableIterator::TableIterator(TableHeap *table_heap, RowId rid, Txn *txn) :
     table_heap_(table_heap), current_rid_(rid), txn_(txn) {
-  // If the iterator is initialized with a valid TableHeap and a potentially valid starting RowId
-  // (i.e., not explicitly an end-iterator marker like INVALID_ROWID passed for rid),
-  // attempt to pre-fetch the current row's data.
   if (table_heap_ != nullptr && current_rid_.GetPageId() != INVALID_PAGE_ID) {
     current_row_.SetRowId(current_rid_); // Set the RID for the row buffer
-    // Try to fetch the tuple. If it fails (e.g., tuple is deleted, RID is invalid beyond heap bounds),
-    // this iterator should be considered invalid or at an "end" state.
     if (!table_heap_->GetTuple(&current_row_, txn_)) {
       // LOG(WARNING) << "TableIterator: GetTuple failed for initial RID: " << current_rid_.GetPageId() << "," << current_rid_.GetSlotNum();
       current_rid_.Set(INVALID_PAGE_ID, 0); // Mark as an end/invalid iterator
@@ -95,12 +90,6 @@ TableIterator &TableIterator::operator++() {
     current_rid_ = next_rid_candidate;
     current_row_.SetRowId(current_rid_); // Prepare current_row_ for GetTuple
     if (!table_heap_->GetTuple(&current_row_, txn_)) {
-      // This implies the tuple found by GetNextTupleRid was not retrievable (e.g. deleted concurrently).
-      // To be robust, the iterator should try to find the *next* valid one,
-      // which means effectively calling ++ recursively or iterating further.
-      // For simplicity in this step, we might mark as end or re-attempt ++.
-      // A simple approach is to mark as end if GetTuple fails.
-      // LOG(WARNING) << "Iterator operator++: GetTuple failed for RID " << current_rid_.Get() << " on same page.";
       current_rid_.Set(INVALID_PAGE_ID, 0); // Simplistic: fail and become end iterator.
     }
     table_heap_->buffer_pool_manager_->UnpinPage(page_id_of_curr_tuple, false); // Unpin, read-only for navigation.
